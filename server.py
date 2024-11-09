@@ -9,6 +9,7 @@ from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import PyPDF2
 import requests
+import json
 
 chat_llm = OllamaLLM(model="llama3.2")
 embedding_function = OllamaEmbeddings(model='nomic-embed-text')  
@@ -29,6 +30,36 @@ def generate_answer(query, vector_store, chat_llm):
     response = chat_llm.invoke(prompt)
     return response
 
+def generate_mcqs(query, vector_store, chat_llm):
+    relevant_docs = retrieve_from_chroma(query, vector_store)
+    context = "\n".join([doc.page_content for doc in relevant_docs])
+
+    prompt = "Context:" + context + """\n\n Generate 5 MCQ type of question in a structure manner as like in JSON format along with the correct option, example output: [
+  {
+    "question": "What is the meaning xyz?",
+    "options": [
+      "A",
+      "B",
+      "C"
+    ],
+    "correct": 1
+  },
+  {
+    "question": "What is the work of xyz",
+    "options": [
+      "x",
+      "y",
+      "z"
+    ],
+    "correct": 2
+  }]. Additionally make sure about: """ + query
+    
+    answer = chat_llm.invoke(prompt)
+    data = answer[answer.index('[') : answer.rindex(']')+1]
+
+    return json.loads(data)
+
+
 
 def getQuery(question, currentChapter):
     print("Current Chapter: ",currentChapter)
@@ -36,6 +67,11 @@ def getQuery(question, currentChapter):
     answer = generate_answer(question, vector_store, chat_llm)
     return answer
 
+def getMCQs(question, currentChapter):
+    print("Current Chapter: ",currentChapter)
+    vector_store = Chroma(embedding_function=embedding_function, collection_name=currentChapter, persist_directory="./chromadb")
+    answer = generate_mcqs(question, vector_store, chat_llm)
+    return answer
 
 def vectorAudioTranscribe(audio, currentChapter):
     r = requests.get(audio, stream=True)
@@ -110,6 +146,11 @@ async def root(message):
 async def chat(item: Message):
     print("Current Chapter: ",item.currentChapter)
     return {"message": getQuery(item.message, item.currentChapter)}
+ 
+@app.post("/mcqs")
+async def chat(item: Message):
+    print("Current Chapter: ",item.currentChapter)
+    return {"message": getMCQs(item.message, item.currentChapter)}
 
 
 @app.post("/audio")
